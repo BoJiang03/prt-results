@@ -162,17 +162,21 @@ const METRICS = [
   { k: "ttft_p95", label: "TTFT p95", unit: "s", higher: false },
   { k: "decode_p50", label: "Decode p50", unit: "tok/s", higher: true },
   { k: "decode_p10", label: "Decode p10", unit: "tok/s", higher: true },
-  { k: "input_ktok_s", label: "Input throughput", unit: "k tok/s", higher: true },
+  { k: "input_ktok_s", label: "Input throughput", unit: "k tok/s", higher: true, note: "every prompt token, cache hits included" },
+  // Neither direction is better: less computed prefill means more cache hits, or less load.
+  { k: "compute_ktok_s", label: "Prefill compute", unit: "k tok/s", higher: null, note: "prompt tokens the GPU computed, cache hits excluded" },
   { k: "output_ktok_s", label: "Output throughput", unit: "k tok/s", higher: true },
 ];
 
 // Throughput in k tok/s. Runs before CI recorded input_tok_s derive it from the
-// same window's prompt-token counters; output_tok_s has no such source.
+// same window's prompt-token counters; output_tok_s has no such source. Prefill
+// compute is the local_compute part of those counters.
 function addThroughput(s) {
   const prompt = s.prompt_tokens_by_source;
   const input = s.input_tok_s ?? (prompt && s.window_s ? Object.values(prompt).reduce((a, b) => a + b, 0) / s.window_s : null);
   s.input_ktok_s = input == null ? null : input / 1e3;
   s.output_ktok_s = s.output_tok_s == null ? null : s.output_tok_s / 1e3;
+  s.compute_ktok_s = prompt && s.window_s ? prompt.local_compute / s.window_s / 1e3 : null;
 }
 const GATED_SUITES = new Set(["nightly"]);
 const REPOS = { vllm: "vllm-project/vllm", lmcache: "LMCache/LMCache", mooncake: "kvcache-ai/Mooncake" };
@@ -282,7 +286,7 @@ function renderCharts(runs) {
   }));
   if (!ok.length) { $("charts").innerHTML = `<div class="empty">No valid runs on this host yet. Each valid run adds one point per chart.</div>`; return; }
   const invalidN = runs.length - ok.length;
-  $("charts").innerHTML = METRICS.map((m) => `<div class="chart"><h3>${m.label}<span>${m.unit}, ${m.higher ? "higher" : "lower"} is better</span></h3><div class="plot" id="plot-${m.k}"></div></div>`).join("");
+  $("charts").innerHTML = METRICS.map((m) => `<div class="chart"><h3>${m.label}<span>${m.unit}, ${[m.note, m.higher == null ? "" : (m.higher ? "higher" : "lower") + " is better"].filter(Boolean).join(", ")}</span></h3><div class="plot" id="plot-${m.k}"></div></div>`).join("");
   const fg = css("--fg"), muted = css("--muted"), line = css("--line");
   const range = xRange(runs);
   for (const m of METRICS) {
@@ -342,7 +346,7 @@ function renderCompare(runs) {
   const best = {};
   for (const m of cols) {
     const vs = deps.map((d) => g[d].summary[m.k]).filter((v) => v != null);
-    best[m.k] = vs.length ? (m.higher ? Math.max(...vs) : Math.min(...vs)) : null;
+    best[m.k] = vs.length && m.higher != null ? (m.higher ? Math.max(...vs) : Math.min(...vs)) : null;
   }
   const cell = (r, m) => {
     const v = r.summary[m.k];
