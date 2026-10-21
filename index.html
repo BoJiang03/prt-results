@@ -85,6 +85,8 @@ a { color: var(--accent); }
 .plot { height: 250px; }
 .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--muted); margin-bottom: 10px; }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--c); margin-right: 6px; vertical-align: -1px; }
+.legend button { font: inherit; color: inherit; background: none; border: 0; padding: 2px 0; cursor: pointer; }
+.legend button[aria-pressed="false"] { opacity: 0.45; text-decoration: line-through; }
 .legend .vl { width: 14px; height: 0; border-top: 2px dotted var(--muted); border-radius: 0; background: none; vertical-align: 3px; }
 
 .empty { color: var(--muted); font-size: 14px; padding: 18px; border: 1px dashed var(--line); border-radius: 8px; background: var(--surface); }
@@ -152,7 +154,7 @@ const DEPS = {
   vllm_lmcache: { label: "LMCache", desc: "vLLM + LMCache", color: "--s-lmcache" },
   vllm_native: { label: "vLLM native", desc: "vLLM OffloadingConnector, CPU + disk", color: "--s-native" },
   vllm_simple: { label: "vLLM simple", desc: "vLLM SimpleCPUOffloadConnector, CPU only", color: "--s-simple" },
-  vllm_simple_l2: { label: "vLLM simple L2", desc: "vLLM SimpleCPUOffloadConnector, disk + capped page cache", color: "--s-simple-l2" },
+  vllm_simple_l2: { label: "vLLM simple L2", desc: "vLLM SimpleCPUOffloadConnector, disk + capped page cache", color: "--s-simple-l2", hidden: true },
   vllm_mooncake: { label: "Mooncake", desc: "vLLM + Mooncake store", color: "--s-mooncake" },
 };
 const METRICS = [
@@ -250,19 +252,30 @@ function xRange(runs) {
   return [new Date(lo - pad), new Date(hi + pad)];
 }
 
+// Deployments hidden from the charts, per viewer. A hidden one does not set the y range,
+// so one far-off deployment cannot flatten the rest. Defaults come from DEPS.
+const HIDDEN_KEY = "prt-hidden";
+let HIDDEN = Object.fromEntries(Object.entries(DEPS).map(([k, v]) => [k, !!v.hidden]));
+try { Object.assign(HIDDEN, JSON.parse(localStorage.getItem(HIDDEN_KEY) || "{}")); } catch (e) {}
+
 function renderCharts(runs) {
   const ok = runs.filter(valid);
   const deps = [...new Set(ok.map((r) => r.deployment))].sort((a, b) => Object.keys(DEPS).indexOf(a) - Object.keys(DEPS).indexOf(b));
   const changes = vllmChanges(runs);
-  $("legend").innerHTML = deps.map((d) => `<span><i style="--c: var(${dep(d).color})"></i>${esc(dep(d).label)}</span>`).join("") +
+  $("legend").innerHTML = deps.map((d) => `<button type="button" data-dep="${esc(d)}" aria-pressed="${!HIDDEN[d]}" title="Show or hide on the charts"><i style="--c: var(${dep(d).color})"></i>${esc(dep(d).label)}</button>`).join("") +
     (changes.length ? `<span><i class="vl"></i>new vLLM build</span>` : "");
+  $("legend").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+    HIDDEN[b.dataset.dep] = !HIDDEN[b.dataset.dep];
+    try { localStorage.setItem(HIDDEN_KEY, JSON.stringify(HIDDEN)); } catch (e) {}
+    renderCharts(runs);
+  }));
   if (!ok.length) { $("charts").innerHTML = `<div class="empty">No valid runs on this host yet. Each valid run adds one point per chart.</div>`; return; }
   const invalidN = runs.length - ok.length;
   $("charts").innerHTML = METRICS.map((m) => `<div class="chart"><h3>${m.label}<span>${m.unit}, ${m.higher ? "higher" : "lower"} is better</span></h3><div class="plot" id="plot-${m.k}"></div></div>`).join("");
   const fg = css("--fg"), muted = css("--muted"), line = css("--line");
   const range = xRange(runs);
   for (const m of METRICS) {
-    const traces = deps.map((d) => {
+    const traces = deps.filter((d) => !HIDDEN[d]).map((d) => {
       const rs = ok.filter((r) => r.deployment === d && r.summary[m.k] != null);
       const few = rs.length <= LABEL_POINTS;
       return {
@@ -286,7 +299,7 @@ function renderCharts(runs) {
       showlegend: false, hovermode: "closest",
       xaxis: { type: "date", range, gridcolor: line, linecolor: line, zeroline: false, tickformat: "%b %d", nticks: 6 },
       // From zero, so a small move between two points is not drawn as a cliff; headroom for the labels.
-      yaxis: { rangemode: "tozero", range: [0, Math.max(...ys) * 1.22], gridcolor: line, zerolinecolor: line, tickfont: { family: css("--mono") } },
+      yaxis: { rangemode: "tozero", range: [0, (ys.length ? Math.max(...ys) : 1) * 1.22], gridcolor: line, zerolinecolor: line, tickfont: { family: css("--mono") } },
       shapes: changes.map((c) => ({ type: "line", xref: "x", yref: "paper", x0: c.x, x1: c.x, y0: 0, y1: 1, line: { color: muted, width: 1, dash: "dot" } })),
       annotations: changes.map((c) => ({ x: c.x, xref: "x", y: 1, yref: "paper", yanchor: "bottom", text: "vLLM " + sha(c.c), showarrow: false, font: { size: 10, color: muted, family: css("--mono") } })),
       hoverlabel: { bgcolor: css("--surface"), bordercolor: line, font: { color: fg, family: css("--sans") } },
