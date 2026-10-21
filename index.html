@@ -162,7 +162,18 @@ const METRICS = [
   { k: "ttft_p95", label: "TTFT p95", unit: "s", higher: false },
   { k: "decode_p50", label: "Decode p50", unit: "tok/s", higher: true },
   { k: "decode_p10", label: "Decode p10", unit: "tok/s", higher: true },
+  { k: "input_ktok_s", label: "Input throughput", unit: "k tok/s", higher: true },
+  { k: "output_ktok_s", label: "Output throughput", unit: "k tok/s", higher: true },
 ];
+
+// Throughput in k tok/s. Runs before CI recorded input_tok_s derive it from the
+// same window's prompt-token counters; output_tok_s has no such source.
+function addThroughput(s) {
+  const prompt = s.prompt_tokens_by_source;
+  const input = s.input_tok_s ?? (prompt && s.window_s ? Object.values(prompt).reduce((a, b) => a + b, 0) / s.window_s : null);
+  s.input_ktok_s = input == null ? null : input / 1e3;
+  s.output_ktok_s = s.output_tok_s == null ? null : s.output_tok_s / 1e3;
+}
 const GATED_SUITES = new Set(["nightly"]);
 const REPOS = { vllm: "vllm-project/vllm", lmcache: "LMCache/LMCache", mooncake: "kvcache-ai/Mooncake" };
 // Below this many points per series, values are printed on the points.
@@ -406,6 +417,7 @@ async function main() {
     const res = await fetch("data/runs.jsonl", { cache: "no-store" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     RUNS = (await res.text()).split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l));
+    RUNS.forEach((r) => addThroughput(r.summary));
   } catch (e) {
     $("error").hidden = false;
     $("error").textContent = `Could not load data/runs.jsonl (${e.message}). The page reads the results file next to it; check that the CI push added it.`;
