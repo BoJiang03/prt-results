@@ -171,17 +171,23 @@ const METRICS = [
   // Neither direction is better: less computed prefill means more cache hits, or less load.
   { k: "compute_ktok_s", label: "Prefill compute", unit: "k tok/s", higher: null, note: "prompt tokens the GPU computed, cache hits excluded" },
   { k: "output_ktok_s", label: "Output throughput", unit: "k tok/s", higher: true },
+  // The dashed line is the ideal: what an unbounded prefix cache would serve the same prompts.
+  { k: "hit_pct", label: "Cache hit", unit: "%", higher: true, ideal: "ideal_pct", noratio: true, note: "prompt tokens not computed, dashed: ideal" },
 ];
 
 // Throughput in k tok/s. Runs before CI recorded input_tok_s derive it from the
 // same window's prompt-token counters; output_tok_s has no such source. Prefill
-// compute is the local_compute part of those counters.
+// compute is the local_compute part of those counters, and the cache hit share
+// the rest. Runs before PRT logged prompt hashes have no ideal.
 function addThroughput(s) {
   const prompt = s.prompt_tokens_by_source;
   const input = s.input_tok_s ?? (prompt && s.window_s ? Object.values(prompt).reduce((a, b) => a + b, 0) / s.window_s : null);
   s.input_ktok_s = input == null ? null : input / 1e3;
   s.output_ktok_s = s.output_tok_s == null ? null : s.output_tok_s / 1e3;
   s.compute_ktok_s = prompt && s.window_s ? prompt.local_compute / s.window_s / 1e3 : null;
+  const total = prompt ? Object.values(prompt).reduce((a, b) => a + b, 0) : 0;
+  s.hit_pct = total ? (1 - prompt.local_compute / total) * 100 : null;
+  s.ideal_pct = s.ideal_hit_share == null ? null : s.ideal_hit_share * 100;
 }
 const GATED_SUITES = new Set(["nightly"]);
 const REPOS = { vllm: "vllm-project/vllm", lmcache: "LMCache/LMCache", mooncake: "kvcache-ai/Mooncake" };
@@ -241,7 +247,8 @@ function renderCards(runs) {
   $("cards").innerHTML = order.map((d) => {
     const r = latest[d], s = r.summary, g = gate(r), D = dep(d);
     const body = valid(r)
-      ? `<dl class="kv">${METRICS.map((m) => `<div><dt>${m.label}</dt><dd>${num(s[m.k])} <span class="u">${m.unit}</span>${delta(r, m)}</dd></div>`).join("")}</dl>`
+      ? `<dl class="kv">${METRICS.map((m) => `<div><dt>${m.label}</dt><dd>${num(s[m.k])} <span class="u">${m.unit}</span>${delta(r, m)}</dd></div>` +
+          (m.ideal ? `<div><dt>Ideal hit</dt><dd>${num(s[m.ideal])} <span class="u">${m.unit}</span></dd></div>` : "")).join("")}</dl>`
       : `<div class="reason">${(s.invalid || []).map(esc).join("<br>")}</div>`;
     return `<article class="card" style="--dep: var(${D.color})">
       <div class="card-head"><div><div class="card-name">${esc(D.label)}</div><div class="card-desc">${esc(D.desc)} · ${GATED_SUITES.has(r.suite) ? "gated" : "tracked"}</div></div>
@@ -311,6 +318,19 @@ function renderCharts(runs) {
         cliponaxis: false,
       };
     });
+    if (m.ideal) {
+      for (const d of deps.filter((d) => !HIDDEN[d])) {
+        const rs = ok.filter((r) => r.deployment === d && r.summary[m.ideal] != null);
+        traces.push({
+          type: "scatter", name: dep(d).label + " ideal", mode: "lines+markers",
+          x: rs.map((r) => parseStamp(r.date)), y: rs.map((r) => r.summary[m.ideal]),
+          hovertemplate: `%{x|%b %d %H:%M} UTC<br>Ideal hit %{y:.3g} %<extra>${esc(dep(d).label)}</extra>`,
+          line: { color: css(dep(d).color), width: 1.5, dash: "dash" },
+          marker: { color: css(dep(d).color), size: 5, symbol: "circle-open" },
+          cliponaxis: false,
+        });
+      }
+    }
     const ys = traces.flatMap((t) => t.y);
     const layout = {
       margin: { l: 44, r: 12, t: 22, b: 36 },
@@ -319,7 +339,7 @@ function renderCharts(runs) {
       showlegend: false, hovermode: "closest",
       xaxis: { type: "date", range, gridcolor: line, linecolor: line, zeroline: false, tickformat: "%b %d", nticks: 6 },
       // From zero, so a small move between two points is not drawn as a cliff; headroom for the labels.
-      yaxis: { rangemode: "tozero", range: [0, (ys.length ? Math.max(...ys) : 1) * 1.22], gridcolor: line, zerolinecolor: line, tickfont: { family: css("--mono") } },
+      yaxis: { rangemode: "tozero", range: [0, m.unit === "%" ? 108 : (ys.length ? Math.max(...ys) : 1) * 1.22], gridcolor: line, zerolinecolor: line, tickfont: { family: css("--mono") } },
       shapes: changes.map((c) => ({ type: "line", xref: "x", yref: "paper", x0: c.x, x1: c.x, y0: 0, y1: 1, line: { color: muted, width: 1, dash: "dot" } })),
       annotations: changes.map((c) => ({ x: c.x, xref: "x", y: 1, yref: "paper", yanchor: "bottom", text: "vLLM " + sha(c.c), showarrow: false, font: { size: 10, color: muted, family: css("--mono") } })),
       hoverlabel: { bgcolor: css("--surface"), bordercolor: line, font: { color: fg, family: css("--sans") } },
@@ -347,7 +367,7 @@ function renderCompare(runs) {
   $("cmp-sub").innerHTML = `Latest valid run of each deployment on vLLM ${commitLink("vllm", commit)}. Runs come from different nights; the ratio is against LMCache.`;
   const deps = Object.keys(DEPS).filter((d) => g[d]).concat(Object.keys(g).filter((d) => !DEPS[d]));
   const base = g.vllm_lmcache;
-  const cols = [...METRICS, { k: "external_token_share", label: "Cache-layer tokens", unit: "", higher: true, pct: true }];
+  const cols = [...METRICS, { k: "ideal_pct", label: "Ideal hit", unit: "%", higher: null, noratio: true }, { k: "external_token_share", label: "Cache-layer tokens", unit: "", higher: true, pct: true }];
   const best = {};
   for (const m of cols) {
     const vs = deps.map((d) => g[d].summary[m.k]).filter((v) => v != null);
@@ -357,7 +377,7 @@ function renderCompare(runs) {
     const v = r.summary[m.k];
     if (v == null) return `<td class="num">–</td>`;
     const shown = m.pct ? (v * 100).toFixed(0) + "%" : num(v);
-    const ratio = base && r !== base && !m.pct && base.summary[m.k] ? `<span class="ratio">${(v / base.summary[m.k]).toFixed(2)}×</span>` : "";
+    const ratio = base && r !== base && !m.pct && !m.noratio && base.summary[m.k] ? `<span class="ratio">${(v / base.summary[m.k]).toFixed(2)}×</span>` : "";
     return `<td class="num${v === best[m.k] && deps.length > 1 ? " best" : ""}">${shown}${m.unit && !m.pct ? " " + m.unit : ""}${ratio}</td>`;
   };
   $("compare").innerHTML = `<div class="table-box"><table><thead><tr><th>Deployment</th><th>Run</th>${cols.map((m) => `<th class="num">${m.label}</th>`).join("")}</tr></thead><tbody>${deps.map((d) => {
