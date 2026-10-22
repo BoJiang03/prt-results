@@ -211,20 +211,46 @@ const num = (v, digits = 3) => (v == null || Number.isNaN(v) ? "–" : Number(v)
 const sha = (s) => (s ? s.slice(0, 9) : "–");
 const commitLink = (repo, s) => (s ? `<a href="https://github.com/${REPOS[repo]}/commit/${esc(s)}" target="_blank" rel="noopener"><code>${esc(sha(s))}</code></a>` : "–");
 
+// The runs a history check stands on, as far as this page has them: the valid
+// runs of r's pair from the start of the metric's regime up to r itself. CI's
+// history can hold runs from before the results file existed; the page counts
+// and compares only runs it draws, so a card agrees with its chart.
+function regimeRuns(r, m) {
+  const start = r.vs_history?.regimes?.[m.k];
+  if (!start) return null;
+  const from = start.slice(0, 15);
+  return RUNS.filter((x) => valid(x) && x.host === r.host && x.workload === r.workload && x.deployment === r.deployment &&
+    x.date >= from && x.date <= r.date && x.summary[m.k] != null);
+}
+
+function median(xs) {
+  const v = [...xs].sort((a, b) => a - b), h = v.length >> 1;
+  return v.length % 2 ? v[h] : (v[h - 1] + v[h]) / 2;
+}
+
+// n counts r itself; the median is of the runs before r, as CI computes it.
+function pageHistory(r, m) {
+  const rs = regimeRuns(r, m);
+  if (!rs) return null;
+  const past = rs.filter((x) => x !== r).map((x) => x.summary[m.k]);
+  const med = past.length ? median(past) : null;
+  return { n: past.length + 1, median: med, change: med ? r.summary[m.k] / med - 1 : null };
+}
+
 function gate(r) {
   if (!valid(r)) return { cls: "bad", text: "Invalid" };
   const vh = r.vs_history;
   if (!vh || !vh.metrics) return { cls: "idle", text: "No history check" };
   const worse = METRICS.filter((m) => vh.metrics[m.k]?.regressed).map((m) => m.label);
   if (worse.length) return { cls: "bad", text: "Regressed: " + worse.join(", ") };
-  const ns = METRICS.map((m) => vh.metrics[m.k]?.n).filter((n) => n != null);
+  const ns = METRICS.filter((m) => vh.metrics[m.k]).map((m) => pageHistory(r, m)?.n).filter((n) => n != null);
   const n = ns.length ? Math.min(...ns) : 0;
   if (vh.min_runs && n < vh.min_runs) return { cls: "warn", text: `Warming up · ${n}/${vh.min_runs} runs` };
   return { cls: "ok", text: "No regression" };
 }
 
 function delta(r, m) {
-  const c = r.vs_history?.metrics?.[m.k];
+  const c = pageHistory(r, m);
   if (!c || c.change == null) return "";
   const pct = c.change * 100;
   if (Math.abs(pct) < 0.5) return `<span class="delta flat" title="vs median of its regime">±0%</span>`;
@@ -419,7 +445,10 @@ function detail(r) {
     ["L2 disk used", s.l2_disk_used_gb != null ? num(s.l2_disk_used_gb, 4) + " GB" : "–"],
     ["L2 read", s.l2_read_gb != null ? num(s.l2_read_gb, 4) + " GB" : "–"],
     ["vLLM image", r.images?.vllm_source ? `${r.images.vllm_source} build` : "–"],
-    ...METRICS.filter((m) => vh[m.k]).map((m) => [`${m.label} vs history`, `median ${num(vh[m.k].median)} · n ${vh[m.k].n ?? "–"} · p(worse) ${num(vh[m.k].p_worse, 2)}${vh[m.k].shift ? " · shift " + vh[m.k].shift : ""}`]),
+    ...METRICS.filter((m) => vh[m.k]).map((m) => {
+      const h = pageHistory(r, m);
+      return [`${m.label} vs history`, `median ${num(h?.median)} · n ${h?.n ?? "–"} · p(worse) ${num(vh[m.k].p_worse, 2)} (CI)${vh[m.k].shift ? " · shift " + vh[m.k].shift : ""}`];
+    }),
   ];
   return `<dl>${items.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl>`;
 }
