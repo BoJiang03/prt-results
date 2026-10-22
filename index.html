@@ -15,7 +15,7 @@
 :root {
   --bg: #f4f6f9; --surface: #ffffff; --fg: #141821; --muted: #5a6474; --line: #dde2ea;
   --accent: #1f5fbf;
-  --s-lmcache: #1f5fbf; --s-native: #7b5ea7; --s-simple: #0f7f73; --s-simple-l2: #b03a5b; --s-mooncake: #b86e00; --s-other: #5a6474;
+  --s-lmcache: #1f5fbf; --s-native: #7b5ea7; --s-simple: #0f7f73; --s-simple-l2: #b03a5b; --s-mooncake: #b86e00; --s-ssm: #4d7a1f; --s-other: #5a6474;
   --ok: #1b7a45; --ok-bg: #e3f3ea; --bad: #b8322b; --bad-bg: #fbe6e4;
   --warn: #7a5c00; --warn-bg: #f6efd6; --idle: #5a6474; --idle-bg: #eceff4;
   --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -24,7 +24,7 @@
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #0e1116; --surface: #161a21; --fg: #e5e9ef; --muted: #98a2b2; --line: #2a313c;
   --accent: #74a7ff;
-  --s-lmcache: #74a7ff; --s-native: #b9a0e6; --s-simple: #4fc7b6; --s-simple-l2: #f08aa6; --s-mooncake: #e8a547; --s-other: #98a2b2;
+  --s-lmcache: #74a7ff; --s-native: #b9a0e6; --s-simple: #4fc7b6; --s-simple-l2: #f08aa6; --s-mooncake: #e8a547; --s-ssm: #9ccc65; --s-other: #98a2b2;
   --ok: #5cc791; --ok-bg: #12301f; --bad: #f2776c; --bad-bg: #3a1714;
   --warn: #dcc160; --warn-bg: #332a0c; --idle: #98a2b2; --idle-bg: #222831;
   color-scheme: dark;
@@ -32,7 +32,7 @@
 :root[data-theme="dark"] {
   --bg: #0e1116; --surface: #161a21; --fg: #e5e9ef; --muted: #98a2b2; --line: #2a313c;
   --accent: #74a7ff;
-  --s-lmcache: #74a7ff; --s-native: #b9a0e6; --s-simple: #4fc7b6; --s-simple-l2: #f08aa6; --s-mooncake: #e8a547; --s-other: #98a2b2;
+  --s-lmcache: #74a7ff; --s-native: #b9a0e6; --s-simple: #4fc7b6; --s-simple-l2: #f08aa6; --s-mooncake: #e8a547; --s-ssm: #9ccc65; --s-other: #98a2b2;
   --ok: #5cc791; --ok-bg: #12301f; --bad: #f2776c; --bad-bg: #3a1714;
   --warn: #dcc160; --warn-bg: #332a0c; --idle: #98a2b2; --idle-bg: #222831;
   color-scheme: dark;
@@ -156,6 +156,8 @@ const DEPS = {
   vllm_simple: { label: "vLLM simple", desc: "vLLM SimpleCPUOffloadConnector, CPU only", color: "--s-simple" },
   vllm_simple_l2: { label: "vLLM simple L2", desc: "vLLM SimpleCPUOffloadConnector, disk + capped page cache", color: "--s-simple-l2", hidden: true },
   vllm_mooncake: { label: "Mooncake", desc: "vLLM + Mooncake store", color: "--s-mooncake" },
+  // Another model, so its numbers are not comparable with the rest.
+  vllm_lmcache_ssm: { label: "LMCache, hybrid model", desc: "vLLM + LMCache on Qwen3.8-Flash-Next (Gated DeltaNet + attention)", color: "--s-ssm", hidden: true },
 };
 const METRICS = [
   { k: "ttft_p50", label: "TTFT p50", unit: "s", higher: false },
