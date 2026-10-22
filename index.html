@@ -156,9 +156,9 @@ td.best { font-weight: 600; }
 <script src="https://cdn.jsdelivr.net/npm/plotly.js-basic-dist-min@2.35.2/plotly-basic.min.js"></script>
 <script>
 const DEPS = {
-  vllm_lmcache: { label: "LMCache", desc: "vLLM + LMCache", color: "--s-lmcache" },
+  vllm_lmcache: { label: "LMCache, hybrid SWA", desc: "vLLM + LMCache on Step-3.7-Flash (sliding-window + full attention)", color: "--s-lmcache" },
   // Another model, so its numbers are not comparable with the rest.
-  vllm_lmcache_ssm: { label: "LMCache, hybrid model", desc: "vLLM + LMCache on Qwen3.8-Flash-Next (Gated DeltaNet + attention)", color: "--s-ssm", hidden: true },
+  vllm_lmcache_ssm: { label: "LMCache, hybrid SSM", desc: "vLLM + LMCache on Qwen3.8-Flash-Next (Gated DeltaNet + full attention)", color: "--s-ssm", hidden: true },
   vllm_native: { label: "vLLM native", desc: "vLLM OffloadingConnector, CPU + disk", color: "--s-native" },
   vllm_simple: { label: "vLLM simple", desc: "vLLM SimpleCPUOffloadConnector, CPU only", color: "--s-simple" },
   vllm_simple_l2: { label: "vLLM simple L2", desc: "vLLM SimpleCPUOffloadConnector, disk + capped page cache", color: "--s-simple-l2", hidden: true },
@@ -378,7 +378,7 @@ function renderCompare(runs) {
     return;
   }
   const [commit, g] = groups[0];
-  $("cmp-sub").innerHTML = `Latest valid run of each deployment on vLLM ${commitLink("vllm", commit)}. Runs come from different nights; the ratio is against LMCache.`;
+  $("cmp-sub").innerHTML = `Latest valid run of each deployment on vLLM ${commitLink("vllm", commit)}. Runs come from different nights; the ratio is against LMCache, hybrid SWA.`;
   const deps = Object.keys(DEPS).filter((d) => g[d]).concat(Object.keys(g).filter((d) => !DEPS[d]));
   const base = g.vllm_lmcache;
   const cols = [...METRICS, { k: "ideal_pct", label: "Ideal hit", unit: "%", higher: null, noratio: true }, { k: "external_token_share", label: "Cache-layer tokens", unit: "", higher: true, pct: true }];
