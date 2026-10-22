@@ -92,6 +92,7 @@ a { color: var(--accent); }
 .legend button[aria-pressed="false"] { opacity: 0.45; text-decoration: line-through; }
 .more { margin-top: 10px; font: inherit; font-size: 13px; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
 .more:hover { border-color: var(--muted); }
+.cards.folded { margin-top: 12px; }
 .legend .vl { width: 14px; height: 0; border-top: 2px dotted var(--muted); border-radius: 0; background: none; vertical-align: 3px; }
 
 .empty { color: var(--muted); font-size: 14px; padding: 18px; border: 1px dashed var(--line); border-radius: 8px; background: var(--surface); }
@@ -131,6 +132,7 @@ td.best { font-weight: 600; }
     <h2>Latest run per deployment</h2>
     <p class="sub">The nightly suite gates LMCache: a run fails when a metric shifts to a worse level against its own history. The weekly suite runs vLLM's native and simple offload and Mooncake on the same vLLM build for reference, and LMCache on a hybrid SSM model; they are tracked, not gated.</p>
     <div class="cards" id="cards"></div>
+    <div id="cards-more"></div>
   </section>
 
   <section>
@@ -158,10 +160,10 @@ td.best { font-weight: 600; }
 const DEPS = {
   vllm_lmcache: { label: "LMCache, hybrid SWA", desc: "vLLM + LMCache on Step-3.7-Flash (sliding-window + full attention)", color: "--s-lmcache" },
   // Another model, so its numbers are not comparable with the rest: no ratio in the compare table.
-  vllm_lmcache_ssm: { label: "LMCache, hybrid SSM", desc: "vLLM + LMCache on Qwen3.8-Flash-Next (Gated DeltaNet + full attention)", color: "--s-ssm", hidden: true, ownModel: true },
+  vllm_lmcache_ssm: { label: "LMCache, hybrid SSM", desc: "vLLM + LMCache on Qwen3.8-Flash-Next (Gated DeltaNet + full attention)", color: "--s-ssm", ownModel: true },
   vllm_native: { label: "vLLM native", desc: "vLLM OffloadingConnector, CPU + disk", color: "--s-native" },
   vllm_simple: { label: "vLLM simple", desc: "vLLM SimpleCPUOffloadConnector, CPU only", color: "--s-simple" },
-  vllm_simple_l2: { label: "vLLM simple L2", desc: "vLLM SimpleCPUOffloadConnector, disk + capped page cache", color: "--s-simple-l2", hidden: true },
+  vllm_simple_l2: { label: "vLLM simple L2", desc: "vLLM SimpleCPUOffloadConnector, disk + capped page cache", color: "--s-simple-l2" },
   vllm_mooncake: { label: "Mooncake", desc: "vLLM + Mooncake store", color: "--s-mooncake" },
 };
 const METRICS = [
@@ -269,12 +271,30 @@ function renderHosts() {
   }));
 }
 
-function renderCards(runs) {
+// A deployment whose latest TTFT p50 is this many times LMCache's is folded
+// away under the cards and left off the charts by default, so the comparable
+// ones sit side by side and one far-off line cannot flatten the rest.
+const FOLD_TTFT = 2;
+
+function latestRuns(runs) {
   const latest = {};
   for (const r of runs) latest[r.deployment] = r;
+  return latest;
+}
+
+function slowDeps(runs) {
+  const latest = latestRuns(runs), ref = latest.vllm_lmcache;
+  if (!ref || !valid(ref)) return new Set();
+  return new Set(Object.keys(latest).filter((d) => !dep(d).ownModel && valid(latest[d]) &&
+    latest[d].summary.ttft_p50 > FOLD_TTFT * ref.summary.ttft_p50));
+}
+
+function renderCards(runs) {
+  const latest = latestRuns(runs);
   const order = Object.keys(DEPS).filter((d) => latest[d]).concat(Object.keys(latest).filter((d) => !DEPS[d]));
   if (!order.length) { $("cards").innerHTML = `<div class="empty">No runs on this host yet. The first nightly adds a card here.</div>`; return; }
-  $("cards").innerHTML = order.map((d) => {
+  const slowSet = slowDeps(runs), folded = (d) => slowSet.has(d);
+  const card = (d) => {
     const r = latest[d], s = r.summary, g = gate(r), D = dep(d);
     const body = valid(r)
       ? `<dl class="kv">${METRICS.map((m) => `<div><dt>${m.label}</dt><dd>${num(s[m.k])} <span class="u">${m.unit}</span>${delta(r, m)}</dd></div>` +
@@ -286,7 +306,20 @@ function renderCards(runs) {
       ${body}
       <div class="card-foot"><span>${esc(r.suite)} · ${fmtDate(parseStamp(r.date))}</span><span>vLLM ${commitLink("vllm", s.vllm_commit)}</span>${s.lmcache_commit ? `<span>LMCache ${commitLink("lmcache", s.lmcache_commit)}</span>` : ""}${r.build_url ? `<a href="${esc(r.build_url)}" target="_blank" rel="noopener">build</a>` : ""}</div>
     </article>`;
-  }).join("");
+  };
+  const slow = order.filter(folded);
+  $("cards").innerHTML = order.filter((d) => !folded(d)).map(card).join("");
+  $("cards-more").innerHTML = slow.length
+    ? `<button type="button" class="more" aria-expanded="false" title="latest TTFT p50 over ${FOLD_TTFT}x LMCache's">Show ${slow.length} slower deployment${slow.length > 1 ? "s" : ""}</button><div class="cards folded" hidden>${slow.map(card).join("")}</div>`
+    : "";
+  if (slow.length) {
+    $("cards-more").querySelector("button").addEventListener("click", (e) => {
+      const box = $("cards-more").querySelector(".folded");
+      box.hidden = !box.hidden;
+      e.currentTarget.setAttribute("aria-expanded", String(!box.hidden));
+      e.currentTarget.textContent = box.hidden ? `Show ${slow.length} slower deployment${slow.length > 1 ? "s" : ""}` : "Hide slower deployments";
+    });
+  }
 }
 
 function vllmChanges(runs) {
@@ -309,11 +342,11 @@ function xRange(runs) {
   return [new Date(lo - pad), new Date(hi + pad)];
 }
 
-// Deployments hidden from the charts, per viewer. A hidden one does not set the y range,
-// so one far-off deployment cannot flatten the rest. Defaults come from DEPS.
-const HIDDEN_KEY = "prt-hidden";
-let HIDDEN = Object.fromEntries(Object.entries(DEPS).map(([k, v]) => [k, !!v.hidden]));
-try { Object.assign(HIDDEN, JSON.parse(localStorage.getItem(HIDDEN_KEY) || "{}")); } catch (e) {}
+// The viewer's legend clicks, which override the slowDeps default. A hidden
+// deployment does not set the y range.
+const SHOWN_KEY = "prt-shown";
+let SHOWN = {};
+try { SHOWN = JSON.parse(localStorage.getItem(SHOWN_KEY) || "{}"); } catch (e) {}
 
 // Fitted to the data, so the points fill the plot instead of sitting in a band
 // near the top of an axis from zero. The padding is at least 5% of the largest
@@ -328,13 +361,14 @@ function yRange(ys) {
 
 function renderCharts(runs) {
   const ok = runs.filter(valid);
+  const slow = slowDeps(runs), hidden = (d) => !(SHOWN[d] ?? !slow.has(d));
   const deps = [...new Set(ok.map((r) => r.deployment))].sort((a, b) => Object.keys(DEPS).indexOf(a) - Object.keys(DEPS).indexOf(b));
   const changes = vllmChanges(runs);
-  $("legend").innerHTML = deps.map((d) => `<button type="button" data-dep="${esc(d)}" aria-pressed="${!HIDDEN[d]}" title="Show or hide on the charts"><i style="--c: var(${dep(d).color})"></i>${esc(dep(d).label)}</button>`).join("") +
+  $("legend").innerHTML = deps.map((d) => `<button type="button" data-dep="${esc(d)}" aria-pressed="${!hidden(d)}" title="Show or hide on the charts"><i style="--c: var(${dep(d).color})"></i>${esc(dep(d).label)}</button>`).join("") +
     (changes.length ? `<span><i class="vl"></i>new vLLM build</span>` : "");
   $("legend").querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
-    HIDDEN[b.dataset.dep] = !HIDDEN[b.dataset.dep];
-    try { localStorage.setItem(HIDDEN_KEY, JSON.stringify(HIDDEN)); } catch (e) {}
+    SHOWN[b.dataset.dep] = hidden(b.dataset.dep);
+    try { localStorage.setItem(SHOWN_KEY, JSON.stringify(SHOWN)); } catch (e) {}
     renderCharts(runs);
   }));
   if (!ok.length) { $("charts").innerHTML = `<div class="empty">No valid runs on this host yet. Each valid run adds one point per chart.</div>`; return; }
@@ -343,7 +377,7 @@ function renderCharts(runs) {
   const fg = css("--fg"), muted = css("--muted"), line = css("--line");
   const range = xRange(runs);
   for (const m of METRICS) {
-    const traces = deps.filter((d) => !HIDDEN[d]).map((d) => {
+    const traces = deps.filter((d) => !hidden(d)).map((d) => {
       const rs = ok.filter((r) => r.deployment === d && r.summary[m.k] != null);
       const few = rs.length <= LABEL_POINTS;
       return {
@@ -360,7 +394,7 @@ function renderCharts(runs) {
       };
     });
     if (m.ideal) {
-      for (const d of deps.filter((d) => !HIDDEN[d])) {
+      for (const d of deps.filter((d) => !hidden(d))) {
         const rs = ok.filter((r) => r.deployment === d && r.summary[m.ideal] != null);
         traces.push({
           type: "scatter", name: dep(d).label + " ideal", mode: "lines+markers",
