@@ -90,6 +90,8 @@ a { color: var(--accent); }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--c); margin-right: 6px; vertical-align: -1px; }
 .legend button { font: inherit; color: inherit; background: none; border: 0; padding: 2px 0; cursor: pointer; }
 .legend button[aria-pressed="false"] { opacity: 0.45; text-decoration: line-through; }
+.more { margin-top: 10px; font: inherit; font-size: 13px; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+.more:hover { border-color: var(--muted); }
 .legend .vl { width: 14px; height: 0; border-top: 2px dotted var(--muted); border-radius: 0; background: none; vertical-align: 3px; }
 
 .empty { color: var(--muted); font-size: 14px; padding: 18px; border: 1px dashed var(--line); border-radius: 8px; background: var(--surface); }
@@ -155,12 +157,12 @@ td.best { font-weight: 600; }
 <script>
 const DEPS = {
   vllm_lmcache: { label: "LMCache", desc: "vLLM + LMCache", color: "--s-lmcache" },
+  // Another model, so its numbers are not comparable with the rest.
+  vllm_lmcache_ssm: { label: "LMCache, hybrid model", desc: "vLLM + LMCache on Qwen3.8-Flash-Next (Gated DeltaNet + attention)", color: "--s-ssm", hidden: true },
   vllm_native: { label: "vLLM native", desc: "vLLM OffloadingConnector, CPU + disk", color: "--s-native" },
   vllm_simple: { label: "vLLM simple", desc: "vLLM SimpleCPUOffloadConnector, CPU only", color: "--s-simple" },
   vllm_simple_l2: { label: "vLLM simple L2", desc: "vLLM SimpleCPUOffloadConnector, disk + capped page cache", color: "--s-simple-l2", hidden: true },
   vllm_mooncake: { label: "Mooncake", desc: "vLLM + Mooncake store", color: "--s-mooncake" },
-  // Another model, so its numbers are not comparable with the rest.
-  vllm_lmcache_ssm: { label: "LMCache, hybrid model", desc: "vLLM + LMCache on Qwen3.8-Flash-Next (Gated DeltaNet + attention)", color: "--s-ssm", hidden: true },
 };
 const METRICS = [
   { k: "ttft_p50", label: "TTFT p50", unit: "s", higher: false },
@@ -191,6 +193,8 @@ function addThroughput(s) {
 }
 const GATED_SUITES = new Set(["nightly"]);
 const REPOS = { vllm: "vllm-project/vllm", lmcache: "LMCache/LMCache", mooncake: "kvcache-ai/Mooncake" };
+// Newest runs shown in "All runs"; the rest sit behind a toggle.
+const RECENT_RUNS = 12;
 // Below this many points per series, values are printed on the points.
 const LABEL_POINTS = 8;
 
@@ -413,11 +417,22 @@ function detail(r) {
 function renderRuns(runs) {
   if (!runs.length) { $("runs").innerHTML = `<div class="empty">No runs yet.</div>`; return; }
   const rows = [...runs].reverse();
+  const older = rows.length - RECENT_RUNS;
   $("runs").innerHTML = `<div class="table-box"><table class="runs"><thead><tr><th>Date</th><th>Suite</th><th>Deployment</th><th>Result</th>${METRICS.map((m) => `<th class="num">${m.label}</th>`).join("")}<th>Prompt tokens</th><th class="num">Preempt.</th><th>vLLM</th><th>LMCache</th><th>Build</th></tr></thead><tbody>${rows.map((r, i) => {
+    const open = i === RECENT_RUNS ? `</tbody><tbody id="older-runs" hidden>` : "";
     const s = r.summary, g = gate(r);
-    return `<tr class="row" tabindex="0" data-i="${i}" aria-expanded="false"><td>${fmtDate(parseStamp(r.date))}</td><td>${esc(r.suite)}</td><td><span class="dep" style="--c: var(${dep(r.deployment).color})"><i></i>${esc(dep(r.deployment).label)}</span></td><td><span class="pill ${g.cls}">${esc(g.text)}</span></td>${METRICS.map((m) => `<td class="num">${num(s[m.k])}</td>`).join("")}<td>${share(s)}</td><td class="num">${num(s.preemptions)}</td><td>${commitLink("vllm", s.vllm_commit)}</td><td>${commitLink("lmcache", s.lmcache_commit)}</td><td>${r.build_url ? `<a href="${esc(r.build_url)}" target="_blank" rel="noopener">open</a>` : "–"}</td></tr>
+    return `${open}<tr class="row" tabindex="0" data-i="${i}" aria-expanded="false"><td>${fmtDate(parseStamp(r.date))}</td><td>${esc(r.suite)}</td><td><span class="dep" style="--c: var(${dep(r.deployment).color})"><i></i>${esc(dep(r.deployment).label)}</span></td><td><span class="pill ${g.cls}">${esc(g.text)}</span></td>${METRICS.map((m) => `<td class="num">${num(s[m.k])}</td>`).join("")}<td>${share(s)}</td><td class="num">${num(s.preemptions)}</td><td>${commitLink("vllm", s.vllm_commit)}</td><td>${commitLink("lmcache", s.lmcache_commit)}</td><td>${r.build_url ? `<a href="${esc(r.build_url)}" target="_blank" rel="noopener">open</a>` : "–"}</td></tr>
     <tr class="detail" id="detail-${i}" hidden><td colspan="${9 + METRICS.length}">${detail(r)}</td></tr>`;
-  }).join("")}</tbody></table></div>`;
+  }).join("")}</tbody></table></div>` +
+    (older > 0 ? `<button type="button" class="more" id="more-runs" aria-expanded="false">Show ${older} older run${older > 1 ? "s" : ""}</button>` : "");
+  if (older > 0) {
+    $("more-runs").addEventListener("click", (e) => {
+      const body = $("older-runs");
+      body.hidden = !body.hidden;
+      e.currentTarget.setAttribute("aria-expanded", String(!body.hidden));
+      e.currentTarget.textContent = body.hidden ? `Show ${older} older run${older > 1 ? "s" : ""}` : "Show fewer runs";
+    });
+  }
   $("runs").querySelectorAll("tr.row").forEach((tr) => {
     const toggle = (e) => {
       if (e.target.closest("a")) return;
