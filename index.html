@@ -289,6 +289,17 @@ const HIDDEN_KEY = "prt-hidden";
 let HIDDEN = Object.fromEntries(Object.entries(DEPS).map(([k, v]) => [k, !!v.hidden]));
 try { Object.assign(HIDDEN, JSON.parse(localStorage.getItem(HIDDEN_KEY) || "{}")); } catch (e) {}
 
+// Fitted to the data, so the points fill the plot instead of sitting in a band
+// near the top of an axis from zero. The padding is at least 5% of the largest
+// value, so noise between nearly equal runs is not drawn as a cliff; the top
+// leaves room for the point labels.
+function yRange(ys) {
+  if (!ys.length) return [0, 1];
+  const lo = Math.min(...ys), hi = Math.max(...ys);
+  const pad = Math.max((hi - lo) * 0.15, hi * 0.05);
+  return [Math.max(0, lo - pad), hi + pad * 1.8];
+}
+
 function renderCharts(runs) {
   const ok = runs.filter(valid);
   const deps = [...new Set(ok.map((r) => r.deployment))].sort((a, b) => Object.keys(DEPS).indexOf(a) - Object.keys(DEPS).indexOf(b));
@@ -342,8 +353,7 @@ function renderCharts(runs) {
       font: { family: css("--sans"), color: muted, size: 12 },
       showlegend: false, hovermode: "closest",
       xaxis: { type: "date", range, gridcolor: line, linecolor: line, zeroline: false, tickformat: "%b %d", nticks: 6 },
-      // From zero, so a small move between two points is not drawn as a cliff; headroom for the labels.
-      yaxis: { rangemode: "tozero", range: [0, m.unit === "%" ? 108 : (ys.length ? Math.max(...ys) : 1) * 1.22], gridcolor: line, zerolinecolor: line, tickfont: { family: css("--mono") } },
+      yaxis: { range: yRange(ys), gridcolor: line, zerolinecolor: line, tickfont: { family: css("--mono") } },
       shapes: changes.map((c) => ({ type: "line", xref: "x", yref: "paper", x0: c.x, x1: c.x, y0: 0, y1: 1, line: { color: muted, width: 1, dash: "dot" } })),
       annotations: changes.map((c) => ({ x: c.x, xref: "x", y: 1, yref: "paper", yanchor: "bottom", text: "vLLM " + sha(c.c), showarrow: false, font: { size: 10, color: muted, family: css("--mono") } })),
       hoverlabel: { bgcolor: css("--surface"), bordercolor: line, font: { color: fg, family: css("--sans") } },
