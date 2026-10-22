@@ -157,8 +157,8 @@ td.best { font-weight: 600; }
 <script>
 const DEPS = {
   vllm_lmcache: { label: "LMCache, hybrid SWA", desc: "vLLM + LMCache on Step-3.7-Flash (sliding-window + full attention)", color: "--s-lmcache" },
-  // Another model, so its numbers are not comparable with the rest.
-  vllm_lmcache_ssm: { label: "LMCache, hybrid SSM", desc: "vLLM + LMCache on Qwen3.8-Flash-Next (Gated DeltaNet + full attention)", color: "--s-ssm", hidden: true },
+  // Another model, so its numbers are not comparable with the rest: no ratio in the compare table.
+  vllm_lmcache_ssm: { label: "LMCache, hybrid SSM", desc: "vLLM + LMCache on Qwen3.8-Flash-Next (Gated DeltaNet + full attention)", color: "--s-ssm", hidden: true, ownModel: true },
   vllm_native: { label: "vLLM native", desc: "vLLM OffloadingConnector, CPU + disk", color: "--s-native" },
   vllm_simple: { label: "vLLM simple", desc: "vLLM SimpleCPUOffloadConnector, CPU only", color: "--s-simple" },
   vllm_simple_l2: { label: "vLLM simple L2", desc: "vLLM SimpleCPUOffloadConnector, disk + capped page cache", color: "--s-simple-l2", hidden: true },
@@ -391,7 +391,7 @@ function renderCompare(runs) {
     const v = r.summary[m.k];
     if (v == null) return `<td class="num">–</td>`;
     const shown = m.pct ? (v * 100).toFixed(0) + "%" : num(v);
-    const ratio = base && r !== base && !m.pct && !m.noratio && base.summary[m.k] ? `<span class="ratio">${(v / base.summary[m.k]).toFixed(2)}×</span>` : "";
+    const ratio = base && r !== base && !m.pct && !m.noratio && !dep(r.deployment).ownModel && base.summary[m.k] ? `<span class="ratio">${(v / base.summary[m.k]).toFixed(2)}×</span>` : "";
     return `<td class="num${v === best[m.k] && deps.length > 1 ? " best" : ""}">${shown}${m.unit && !m.pct ? " " + m.unit : ""}${ratio}</td>`;
   };
   $("compare").innerHTML = `<div class="table-box"><table><thead><tr><th>Deployment</th><th>Run</th>${cols.map((m) => `<th class="num">${m.label}</th>`).join("")}</tr></thead><tbody>${deps.map((d) => {
