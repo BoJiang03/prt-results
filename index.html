@@ -130,7 +130,7 @@ td.best { font-weight: 600; }
 
   <section>
     <h2>Latest run per deployment</h2>
-    <p class="sub">The nightly suite gates LMCache: a run fails when a metric shifts to a worse level against its own history. The weekly suite runs vLLM's native and simple offload and Mooncake on the same vLLM build for reference, and LMCache on a hybrid SSM model; they are tracked, not gated. Models now: Trinity-Large-Thinking-FP8-Block on 8 × H200 for every deployment but one, and Qwen3.8-Flash-Next-FP8 on 4 × H200 for LMCache, hybrid SSM. Each card names the model its run used.</p>
+    <p class="sub">The nightly suite gates LMCache: a run fails when a metric shifts to a worse level against its own history. The weekly suite runs vLLM's native and simple offload and Mooncake on the same vLLM build for reference, and LMCache on a hybrid SSM model; they are tracked, not gated. Models now: Trinity-Large-Thinking-FP8-Block on 8 × H200 (TP8 + EP) for every deployment but one, and GLM-5.3-Flash on 8 × H200 (DEP8 behind vllm-router) for LMCache, hybrid SSM. Each card names the model its run used.</p>
     <div class="cards" id="cards"></div>
     <div id="cards-more"></div>
   </section>
