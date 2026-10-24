@@ -293,10 +293,12 @@ function latestRuns(runs) {
   return latest;
 }
 
+// Judged on valid runs only, so an invalid latest LMCache run does not unfold
+// everything, and only against LMCache on the same model.
 function slowDeps(runs) {
-  const latest = latestRuns(runs), ref = latest.vllm_lmcache;
-  if (!ref || !valid(ref)) return new Set();
-  return new Set(Object.keys(latest).filter((d) => modelOf(latest[d]) === modelOf(ref) && valid(latest[d]) &&
+  const latest = latestRuns(runs.filter(valid)), ref = latest.vllm_lmcache;
+  if (!ref) return new Set();
+  return new Set(Object.keys(latest).filter((d) => modelOf(latest[d]) === modelOf(ref) &&
     latest[d].summary.ttft_p50 > FOLD_TTFT * ref.summary.ttft_p50));
 }
 
