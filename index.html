@@ -130,14 +130,14 @@ td.best { font-weight: 600; }
 
   <section>
     <h2>Latest run per deployment</h2>
-    <p class="sub">The nightly suite gates LMCache: a run fails when a metric shifts to a worse level against its own history. The weekly suite runs vLLM's native and simple offload and Mooncake on the same vLLM build for reference, and LMCache on a hybrid SSM model; they are tracked, not gated.</p>
+    <p class="sub">The nightly suite gates LMCache: a run fails when a metric shifts to a worse level against its own history. The weekly suite runs vLLM's native and simple offload and Mooncake on the same vLLM build for reference, and LMCache on a hybrid SSM model; they are tracked, not gated. Models now: Trinity-Large-Thinking-FP8-Block on 8 × H200 for every deployment but one, and Qwen3.8-Flash-Next-FP8 on 4 × H200 for LMCache, hybrid SSM. Each card names the model its run used.</p>
     <div class="cards" id="cards"></div>
     <div id="cards-more"></div>
   </section>
 
   <section>
     <h2>Trends</h2>
-    <p class="sub">Valid runs only, agentic workload (Claude Code session replay), 960 s scoring window. A dotted line marks a new pinned vLLM build; changes across it are not LMCache's.</p>
+    <p class="sub">Valid runs only, agentic workload (Claude Code session replay), 960 s scoring window. A dotted line marks a new pinned vLLM build; changes across it are not LMCache's. A break in a line marks a new model, whose numbers do not compare with the old one's.</p>
     <div class="legend" id="legend"></div>
     <div class="charts" id="charts"></div>
   </section>
@@ -158,13 +158,20 @@ td.best { font-weight: 600; }
 <script src="https://cdn.jsdelivr.net/npm/plotly.js-basic-dist-min@2.35.2/plotly-basic.min.js"></script>
 <script>
 const DEPS = {
-  vllm_lmcache: { label: "LMCache, hybrid SWA", desc: "vLLM + LMCache on Step-3.7-Flash (sliding-window + full attention)", color: "--s-lmcache" },
-  // Another model, so its numbers are not comparable with the rest: no ratio in the compare table.
-  vllm_lmcache_ssm: { label: "LMCache, hybrid SSM", desc: "vLLM + LMCache on Qwen3.8-Flash-Next (Gated DeltaNet + full attention)", color: "--s-ssm", ownModel: true },
+  vllm_lmcache: { label: "LMCache, hybrid SWA", desc: "vLLM + LMCache MP server, L1 + disk L2", color: "--s-lmcache" },
+  vllm_lmcache_ssm: { label: "LMCache, hybrid SSM", desc: "vLLM + LMCache on the hybrid linear-attention model", color: "--s-ssm" },
   vllm_native: { label: "vLLM native", desc: "vLLM OffloadingConnector, CPU + disk", color: "--s-native" },
   vllm_simple: { label: "vLLM simple", desc: "vLLM SimpleCPUOffloadConnector, CPU only", color: "--s-simple" },
   vllm_simple_l2: { label: "vLLM simple L2", desc: "vLLM SimpleCPUOffloadConnector, disk + capped page cache", color: "--s-simple-l2" },
   vllm_mooncake: { label: "Mooncake", desc: "vLLM + Mooncake store", color: "--s-mooncake" },
+};
+// Served name -> display name.
+const MODELS = {
+  step3p7: "Step-3.7-Flash",
+  qwen3p8: "Qwen3.8-Flash-Next",
+  "glm-5.3-flash": "GLM-5.3-Flash",
+  "mimo-v2.6-pro": "MiMo-V2.6-Pro",
+  "trinity-large-thinking": "Trinity-Large-Thinking",
 };
 const METRICS = [
   { k: "ttft_p50", label: "TTFT p50", unit: "s", higher: false },
@@ -207,6 +214,10 @@ const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<
 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const dep = (d) => DEPS[d] || { label: d, desc: "", color: "--s-other" };
 const valid = (r) => !(r.summary.invalid || []).length;
+// Runs before CI recorded the model all ran the 4-GPU pair: Qwen3.8 on the SSM
+// deployment, Step-3.7 on the rest.
+const modelOf = (r) => r.summary.model ?? (r.deployment === "vllm_lmcache_ssm" ? "qwen3p8" : "step3p7");
+const modelLabel = (r) => (MODELS[modelOf(r)] || modelOf(r)) + (r.summary.gpus?.length ? ` · ${r.summary.gpus.length} GPUs` : "");
 const parseStamp = (s) => new Date(Date.UTC(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8), +s.slice(9, 11), +s.slice(11, 13), +s.slice(13, 15)));
 const fmtDate = (d) => d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "UTC" }) + " UTC";
 const num = (v, digits = 3) => (v == null || Number.isNaN(v) ? "–" : Number(v).toPrecision(digits).replace(/\.?0+$/, (m) => (m.includes(".") ? "" : m)));
@@ -285,7 +296,7 @@ function latestRuns(runs) {
 function slowDeps(runs) {
   const latest = latestRuns(runs), ref = latest.vllm_lmcache;
   if (!ref || !valid(ref)) return new Set();
-  return new Set(Object.keys(latest).filter((d) => !dep(d).ownModel && valid(latest[d]) &&
+  return new Set(Object.keys(latest).filter((d) => modelOf(latest[d]) === modelOf(ref) && valid(latest[d]) &&
     latest[d].summary.ttft_p50 > FOLD_TTFT * ref.summary.ttft_p50));
 }
 
@@ -301,7 +312,7 @@ function renderCards(runs) {
           (m.ideal ? `<div><dt>Ideal hit</dt><dd>${num(s[m.ideal])} <span class="u">${m.unit}</span></dd></div>` : "")).join("")}</dl>`
       : `<div class="reason">${(s.invalid || []).map(esc).join("<br>")}</div>`;
     return `<article class="card" style="--dep: var(${D.color})">
-      <div class="card-head"><div><div class="card-name">${esc(D.label)}</div><div class="card-desc">${esc(D.desc)} · ${GATED_SUITES.has(r.suite) ? "gated" : "tracked"}</div></div>
+      <div class="card-head"><div><div class="card-name">${esc(D.label)}</div><div class="card-desc">${esc(D.desc)} · ${esc(modelLabel(r))} · ${GATED_SUITES.has(r.suite) ? "gated" : "tracked"}</div></div>
       <span class="pill ${g.cls}">${esc(g.text)}</span></div>
       ${body}
       <div class="card-foot"><span>${esc(r.suite)} · ${fmtDate(parseStamp(r.date))}</span><span>vLLM ${commitLink("vllm", s.vllm_commit)}</span>${s.lmcache_commit ? `<span>LMCache ${commitLink("lmcache", s.lmcache_commit)}</span>` : ""}${r.build_url ? `<a href="${esc(r.build_url)}" target="_blank" rel="noopener">build</a>` : ""}</div>
@@ -359,6 +370,17 @@ function yRange(ys) {
   return [Math.max(0, lo - pad), hi + pad * 1.8];
 }
 
+// A deployment's runs split where the model changes, one line each.
+function segments(rs) {
+  const out = [];
+  for (const r of rs) {
+    const last = out[out.length - 1];
+    if (last && modelOf(last[0]) === modelOf(r)) last.push(r);
+    else out.push([r]);
+  }
+  return out;
+}
+
 function renderCharts(runs) {
   const ok = runs.filter(valid);
   const slow = slowDeps(runs), hidden = (d) => !(SHOWN[d] ?? !slow.has(d));
@@ -377,8 +399,7 @@ function renderCharts(runs) {
   const fg = css("--fg"), muted = css("--muted"), line = css("--line");
   const range = xRange(runs);
   for (const m of METRICS) {
-    const traces = deps.filter((d) => !hidden(d)).map((d) => {
-      const rs = ok.filter((r) => r.deployment === d && r.summary[m.k] != null);
+    const traces = deps.filter((d) => !hidden(d)).flatMap((d) => segments(ok.filter((r) => r.deployment === d && r.summary[m.k] != null)).map((rs) => {
       const few = rs.length <= LABEL_POINTS;
       return {
         type: "scatter", name: dep(d).label,
@@ -386,16 +407,15 @@ function renderCharts(runs) {
         x: rs.map((r) => parseStamp(r.date)), y: rs.map((r) => r.summary[m.k]),
         text: rs.map((r) => num(r.summary[m.k])), textposition: "top center",
         textfont: { family: css("--mono").split(",")[0].replace(/"/g, ""), size: 11, color: css(dep(d).color) },
-        customdata: rs.map((r) => [r.suite, sha(r.summary.vllm_commit), sha(r.summary.lmcache_commit)]),
-        hovertemplate: `%{x|%b %d %H:%M} UTC<br>${m.label} %{y:.3g} ${m.unit}<br>%{customdata[0]} · vLLM %{customdata[1]} · LMCache %{customdata[2]}<extra>${esc(dep(d).label)}</extra>`,
+        customdata: rs.map((r) => [r.suite, sha(r.summary.vllm_commit), sha(r.summary.lmcache_commit), modelLabel(r)]),
+        hovertemplate: `%{x|%b %d %H:%M} UTC<br>${m.label} %{y:.3g} ${m.unit}<br>%{customdata[3]}<br>%{customdata[0]} · vLLM %{customdata[1]} · LMCache %{customdata[2]}<extra>${esc(dep(d).label)}</extra>`,
         line: { color: css(dep(d).color), width: 2 },
         marker: { color: css(dep(d).color), size: few ? 8 : 6 },
         cliponaxis: false,
       };
-    });
+    }));
     if (m.ideal) {
-      for (const d of deps.filter((d) => !hidden(d))) {
-        const rs = ok.filter((r) => r.deployment === d && r.summary[m.ideal] != null);
+      for (const d of deps.filter((d) => !hidden(d))) for (const rs of segments(ok.filter((r) => r.deployment === d && r.summary[m.ideal] != null))) {
         traces.push({
           type: "scatter", name: dep(d).label + " ideal", mode: "lines+markers",
           x: rs.map((r) => parseStamp(r.date)), y: rs.map((r) => r.summary[m.ideal]),
@@ -438,25 +458,27 @@ function renderCompare(runs) {
     return;
   }
   const [commit, g] = groups[0];
-  $("cmp-sub").innerHTML = `Latest valid run of each deployment on vLLM ${commitLink("vllm", commit)}. Runs come from different nights; the ratio is against LMCache, hybrid SWA.`;
+  $("cmp-sub").innerHTML = `Latest valid run of each deployment on vLLM ${commitLink("vllm", commit)}. Runs come from different nights; the ratio is against LMCache, hybrid SWA, and only on the same model.`;
   const deps = Object.keys(DEPS).filter((d) => g[d]).concat(Object.keys(g).filter((d) => !DEPS[d]));
   const base = g.vllm_lmcache;
   const cols = [...METRICS, { k: "ideal_pct", label: "Ideal hit", unit: "%", higher: null, noratio: true }, { k: "external_token_share", label: "Cache-layer tokens", unit: "", higher: true, pct: true }];
+  // Best only among the runs on the base's model.
+  const same = (r) => !base || modelOf(r) === modelOf(base);
   const best = {};
   for (const m of cols) {
-    const vs = deps.map((d) => g[d].summary[m.k]).filter((v) => v != null);
+    const vs = deps.filter((d) => same(g[d])).map((d) => g[d].summary[m.k]).filter((v) => v != null);
     best[m.k] = vs.length && m.higher != null ? (m.higher ? Math.max(...vs) : Math.min(...vs)) : null;
   }
   const cell = (r, m) => {
     const v = r.summary[m.k];
     if (v == null) return `<td class="num">–</td>`;
     const shown = m.pct ? (v * 100).toFixed(0) + "%" : num(v);
-    const ratio = base && r !== base && !m.pct && !m.noratio && !dep(r.deployment).ownModel && base.summary[m.k] ? `<span class="ratio">${(v / base.summary[m.k]).toFixed(2)}×</span>` : "";
-    return `<td class="num${v === best[m.k] && deps.length > 1 ? " best" : ""}">${shown}${m.unit && !m.pct ? " " + m.unit : ""}${ratio}</td>`;
+    const ratio = base && r !== base && !m.pct && !m.noratio && modelOf(r) === modelOf(base) && base.summary[m.k] ? `<span class="ratio">${(v / base.summary[m.k]).toFixed(2)}×</span>` : "";
+    return `<td class="num${v === best[m.k] && same(r) && deps.length > 1 ? " best" : ""}">${shown}${m.unit && !m.pct ? " " + m.unit : ""}${ratio}</td>`;
   };
-  $("compare").innerHTML = `<div class="table-box"><table><thead><tr><th>Deployment</th><th>Run</th>${cols.map((m) => `<th class="num">${m.label}</th>`).join("")}</tr></thead><tbody>${deps.map((d) => {
+  $("compare").innerHTML = `<div class="table-box"><table><thead><tr><th>Deployment</th><th>Model</th><th>Run</th>${cols.map((m) => `<th class="num">${m.label}</th>`).join("")}</tr></thead><tbody>${deps.map((d) => {
     const r = g[d];
-    return `<tr><td><span class="dep" style="--c: var(${dep(d).color})"><i></i>${esc(dep(d).label)}</span></td><td>${esc(r.suite)} · ${fmtDate(parseStamp(r.date))}</td>${cols.map((m) => cell(r, m)).join("")}</tr>`;
+    return `<tr><td><span class="dep" style="--c: var(${dep(d).color})"><i></i>${esc(dep(d).label)}</span></td><td>${esc(modelLabel(r))}</td><td>${esc(r.suite)} · ${fmtDate(parseStamp(r.date))}</td>${cols.map((m) => cell(r, m)).join("")}</tr>`;
   }).join("")}</tbody></table></div>`;
 }
 
@@ -491,11 +513,11 @@ function renderRuns(runs) {
   if (!runs.length) { $("runs").innerHTML = `<div class="empty">No runs yet.</div>`; return; }
   const rows = [...runs].reverse();
   const older = rows.length - RECENT_RUNS;
-  $("runs").innerHTML = `<div class="table-box"><table class="runs"><thead><tr><th>Date</th><th>Suite</th><th>Deployment</th><th>Result</th>${METRICS.map((m) => `<th class="num">${m.label}</th>`).join("")}<th>Prompt tokens</th><th class="num">Preempt.</th><th>vLLM</th><th>LMCache</th><th>Build</th></tr></thead><tbody>${rows.map((r, i) => {
+  $("runs").innerHTML = `<div class="table-box"><table class="runs"><thead><tr><th>Date</th><th>Suite</th><th>Deployment</th><th>Model</th><th>Result</th>${METRICS.map((m) => `<th class="num">${m.label}</th>`).join("")}<th>Prompt tokens</th><th class="num">Preempt.</th><th>vLLM</th><th>LMCache</th><th>Build</th></tr></thead><tbody>${rows.map((r, i) => {
     const open = i === RECENT_RUNS ? `</tbody><tbody id="older-runs" hidden>` : "";
     const s = r.summary, g = gate(r);
-    return `${open}<tr class="row" tabindex="0" data-i="${i}" aria-expanded="false"><td>${fmtDate(parseStamp(r.date))}</td><td>${esc(r.suite)}</td><td><span class="dep" style="--c: var(${dep(r.deployment).color})"><i></i>${esc(dep(r.deployment).label)}</span></td><td><span class="pill ${g.cls}">${esc(g.text)}</span></td>${METRICS.map((m) => `<td class="num">${num(s[m.k])}</td>`).join("")}<td>${share(s)}</td><td class="num">${num(s.preemptions)}</td><td>${commitLink("vllm", s.vllm_commit)}</td><td>${commitLink("lmcache", s.lmcache_commit)}</td><td>${r.build_url ? `<a href="${esc(r.build_url)}" target="_blank" rel="noopener">open</a>` : "–"}</td></tr>
-    <tr class="detail" id="detail-${i}" hidden><td colspan="${9 + METRICS.length}">${detail(r)}</td></tr>`;
+    return `${open}<tr class="row" tabindex="0" data-i="${i}" aria-expanded="false"><td>${fmtDate(parseStamp(r.date))}</td><td>${esc(r.suite)}</td><td><span class="dep" style="--c: var(${dep(r.deployment).color})"><i></i>${esc(dep(r.deployment).label)}</span></td><td>${esc(modelLabel(r))}</td><td><span class="pill ${g.cls}">${esc(g.text)}</span></td>${METRICS.map((m) => `<td class="num">${num(s[m.k])}</td>`).join("")}<td>${share(s)}</td><td class="num">${num(s.preemptions)}</td><td>${commitLink("vllm", s.vllm_commit)}</td><td>${commitLink("lmcache", s.lmcache_commit)}</td><td>${r.build_url ? `<a href="${esc(r.build_url)}" target="_blank" rel="noopener">open</a>` : "–"}</td></tr>
+    <tr class="detail" id="detail-${i}" hidden><td colspan="${10 + METRICS.length}">${detail(r)}</td></tr>`;
   }).join("")}</tbody></table></div>` +
     (older > 0 ? `<button type="button" class="more" id="more-runs" aria-expanded="false">Show ${older} older run${older > 1 ? "s" : ""}</button>` : "");
   if (older > 0) {
