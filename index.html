@@ -192,8 +192,8 @@ const METRICS = [
   { k: "output_ktok_s", label: "Output throughput", unit: "k tok/s", higher: true },
   // The dashed line is the ideal: what an unbounded prefix cache would serve the same prompts.
   { k: "hit_pct", label: "Cache hit", unit: "%", higher: true, ideal: "ideal_pct", noratio: true, note: "prompt tokens not computed, dashed: ideal" },
-  // Lower wears the disks less. Runs before 2026-10-27 have none: their disk
-  // byte counts doubled on an md array.
+  // Lower wears the disks less. Runs before 2026-10-28 have no rate: the run
+  // did not record how long its disk I/O was measured.
   { k: "disk_write_gb_s", label: "L2 disk write", unit: "GB/s", higher: false, note: "cache tiers' disk writes over the whole AIPerf run, warmup included" },
 ];
 
@@ -527,7 +527,7 @@ function detail(r) {
     ["MTP mean accept length", num(s.mtp_mean_accept_len)],
     ["L2 disk used", s.l2_disk_used_gb != null ? num(s.l2_disk_used_gb, 4) + " GB" : "–"],
     ["L2 read", s.l2_read_gb != null ? num(s.l2_read_gb, 4) + " GB" : "–"],
-    ["Disk read / written", s.disk_read_per_write != null ? `${num(s.disk_read_per_write * 100)} % (${num(s.disk_read_gb, 4)} / ${num(s.disk_write_gb, 4)} GB)` : "–"],
+    ["Disk read / written", s.disk_read_per_write != null ? `${num(s.disk_read_per_write * 100)} % (${num(s.disk_read_gb, 4)} / ${num(s.disk_write_gb, 4)} GB${s.disk_io_corrected ? ", halved: the runner counted an md array and its disks" : ""})` : "–"],
     ["vLLM image", r.images?.vllm_source ? `${r.images.vllm_source} build` : "–"],
     ...METRICS.filter((m) => vh[m.k]).map((m) => {
       const h = pageHistory(r, m);
