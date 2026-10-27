@@ -138,7 +138,7 @@ td.best { font-weight: 600; }
 
   <section>
     <h2>Latest run per deployment</h2>
-    <p class="sub">The nightly suite gates LMCache: a run fails when a metric shifts to a worse level against its own history. The weekly suite runs vLLM's native and simple offload and Mooncake on the same vLLM build for reference, and LMCache on a hybrid SSM model; they are tracked, not gated. Models now: Trinity-Large-Thinking-FP8-Block on 8 × H200 at 340 concurrent sessions for every deployment but one, and Qwen3.8-Flash-Next-FP8 on 4 × H200 at 230 for LMCache, hybrid SSM. Each card names the model its run used.</p>
+    <p class="sub">The nightly suite gates LMCache: a run fails when a metric shifts to a worse level against its own history. The weekly suite runs vLLM's native and simple offload and Mooncake on the same vLLM build for reference, and LMCache on a hybrid SSM model; they are tracked, not gated. <span id="models-now"></span> Each card names the model its run used.</p>
     <div class="cards" id="cards"></div>
     <div id="cards-more"></div>
   </section>
@@ -165,21 +165,15 @@ td.best { font-weight: 600; }
 
 <script src="https://cdn.jsdelivr.net/npm/plotly.js-basic-dist-min@2.35.2/plotly-basic.min.js"></script>
 <script>
-const DEPS = {
-  vllm_lmcache: { label: "LMCache, hybrid SWA", desc: "vLLM + LMCache MP server, L1 + disk L2", color: "--s-lmcache" },
-  vllm_lmcache_ssm: { label: "LMCache, hybrid SSM", desc: "vLLM + LMCache on the hybrid linear-attention model", color: "--s-ssm" },
-  vllm_native: { label: "vLLM native", desc: "vLLM OffloadingConnector, CPU + disk", color: "--s-native" },
-  vllm_simple: { label: "vLLM simple", desc: "vLLM SimpleCPUOffloadConnector, CPU only", color: "--s-simple" },
-  vllm_simple_l2: { label: "vLLM simple L2", desc: "vLLM SimpleCPUOffloadConnector, disk + capped page cache", color: "--s-simple-l2" },
-  vllm_mooncake: { label: "Mooncake", desc: "vLLM + Mooncake store", color: "--s-mooncake" },
-};
-// Served name -> display name.
-const MODELS = {
-  step3p7: "Step-3.7-Flash",
-  qwen3p8: "Qwen3.8-Flash-Next",
-  "glm-5.3-flash": "GLM-5.3-Flash",
-  "mimo-v2.6-pro": "MiMo-V2.6-Pro",
-  "trinity-large-thinking": "Trinity-Large-Thinking",
+// Line colors only: names, descriptions and models come from each run's
+// display, which PRT records from its config.toml.
+const COLORS = {
+  vllm_lmcache: "--s-lmcache",
+  vllm_lmcache_ssm: "--s-ssm",
+  vllm_native: "--s-native",
+  vllm_simple: "--s-simple",
+  vllm_simple_l2: "--s-simple-l2",
+  vllm_mooncake: "--s-mooncake",
 };
 const METRICS = [
   { k: "ttft_p50", label: "TTFT p50", unit: "s", higher: false },
@@ -211,31 +205,29 @@ function addThroughput(s) {
   s.hit_pct = total ? (1 - prompt.local_compute / total) * 100 : null;
   s.ideal_pct = s.ideal_hit_share == null ? null : s.ideal_hit_share * 100;
 }
-const GATED_SUITES = new Set(["nightly"]);
 const REPOS = { vllm: "vllm-project/vllm", lmcache: "LMCache/LMCache", mooncake: "kvcache-ai/Mooncake" };
 // Newest runs shown in "All runs"; the rest sit behind a toggle.
 const RECENT_RUNS = 12;
 // Below this many points per series, values are printed on the points.
 const LABEL_POINTS = 8;
 
-let RUNS = [], HOST = null;
+// Deployment -> label of its newest run, for charts and tables.
+let RUNS = [], HOST = null, LABELS = {};
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
-const dep = (d) => DEPS[d] || { label: d, desc: "", color: "--s-other" };
+const dep = (d) => ({ label: LABELS[d] ?? d, color: COLORS[d] || "--s-other" });
+const depOrder = (a, b) => (COLORS[a] ? Object.keys(COLORS).indexOf(a) : 99) - (COLORS[b] ? Object.keys(COLORS).indexOf(b) : 99);
 const valid = (r) => !(r.summary.invalid || []).length;
-// Runs before CI recorded the model all ran the 4-GPU pair: Qwen3.8 on the SSM
-// deployment, Step-3.7 on the rest.
-const modelOf = (r) => r.summary.model ?? (r.deployment === "vllm_lmcache_ssm" ? "qwen3p8" : "step3p7");
-// Runs before summary.concurrency was recorded ran at their model's setting then.
-const OLD_CONCURRENCY = { "step3p7": 220, "qwen3p8": 230, "trinity-large-thinking": 220, "glm-5.3-flash": 230, "mimo-v2.6-pro": 170 };
-const concurrencyOf = (r) => r.summary.concurrency ?? OLD_CONCURRENCY[modelOf(r)];
+const modelOf = (r) => r.summary.model;
+const concurrencyOf = (r) => r.summary.concurrency;
 // Model and load: only runs with the same setup are drawn as one line or compared.
 const setupOf = (r) => `${modelOf(r)}@${concurrencyOf(r)}`;
-const modelLabel = (r) => (MODELS[modelOf(r)] || modelOf(r)) + (r.summary.gpus?.length ? ` · ${r.summary.gpus.length} GPUs` : "") + (concurrencyOf(r) ? ` · ${concurrencyOf(r)} sessions` : "");
+const gpusOf = (r) => r.summary.gpus?.length;
+const modelLabel = (r) => r.display.model + (gpusOf(r) ? ` · ${gpusOf(r)} GPUs` : "") + ` · ${concurrencyOf(r)} sessions`;
 const parseStamp = (s) => new Date(Date.UTC(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8), +s.slice(9, 11), +s.slice(11, 13), +s.slice(13, 15)));
-const fmtDate = (d) => d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "UTC" }) + " UTC";
+const fmtDate = (d) => d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "UTC" }) + " UTC";
 const num = (v, digits = 3) => (v == null || Number.isNaN(v) ? "–" : Number(v).toPrecision(digits).replace(/\.?0+$/, (m) => (m.includes(".") ? "" : m)));
 const sha = (s) => (s ? s.slice(0, 9) : "–");
 const commitLink = (repo, s) => (s ? `<a href="https://github.com/${REPOS[repo]}/commit/${esc(s)}" target="_blank" rel="noopener"><code>${esc(sha(s))}</code></a>` : "–");
@@ -322,6 +314,17 @@ function slowDeps(runs) {
   }));
 }
 
+// One clause per setup the newest runs used, naming its deployments.
+function renderModelsNow(runs) {
+  const by = {};
+  Object.values(latestRuns(runs)).forEach((r) => {
+    const k = modelLabel(r);
+    (by[k] ||= []).push(r.display.label);
+  });
+  const parts = Object.entries(by).map(([k, labels]) => `${k} for ${labels.join(", ")}`);
+  $("models-now").textContent = parts.length ? `Models now: ${parts.join("; ")}.` : "";
+}
+
 function renderCards(runs) {
   const latest = latestRuns(runs);
   // LMCache's cards first, the rest by latest TTFT p50, fastest first; an
@@ -333,13 +336,13 @@ function renderCards(runs) {
   if (!order.length) { $("cards").innerHTML = `<div class="empty">No runs on this host yet. The first nightly adds a card here.</div>`; return; }
   const slowSet = slowDeps(runs), folded = (d) => slowSet.has(d);
   const card = (d) => {
-    const r = latest[d], s = r.summary, g = gate(r), D = dep(d);
+    const r = latest[d], s = r.summary, g = gate(r), D = r.display;
     const body = valid(r)
       ? `<dl class="kv">${METRICS.map((m) => `<div><dt>${m.label}</dt><dd>${num(s[m.k])} <span class="u">${m.unit}</span>${delta(r, m)}</dd></div>` +
           (m.ideal ? `<div><dt>Ideal hit</dt><dd>${num(s[m.ideal])} <span class="u">${m.unit}</span></dd></div>` : "")).join("")}</dl>`
       : `<div class="reason">${(s.invalid || []).map(esc).join("<br>")}</div>`;
-    return `<article class="card" style="--dep: var(${D.color})">
-      <div class="card-head"><div><div class="card-name">${esc(D.label)}</div><div class="card-desc">${esc(D.desc)} · ${esc(modelLabel(r))} · ${GATED_SUITES.has(r.suite) ? "gated" : "tracked"}</div></div>
+    return `<article class="card" style="--dep: var(${dep(d).color})">
+      <div class="card-head"><div><div class="card-name">${esc(D.label)}</div><div class="card-desc">${esc(D.desc)}</div><div class="card-desc">${esc(modelLabel(r))} · ${D.gated ? "gated" : "tracked"}</div></div>
       <span class="pill ${g.cls}">${esc(g.text)}</span></div>
       ${body}
       <div class="card-foot"><span>${esc(r.suite)} · ${fmtDate(parseStamp(r.date))}</span><span>vLLM ${commitLink("vllm", s.vllm_commit)}</span>${s.lmcache_commit ? `<span>LMCache ${commitLink("lmcache", s.lmcache_commit)}</span>` : ""}${r.build_url ? `<a href="${esc(r.build_url)}" target="_blank" rel="noopener">build</a>` : ""}</div>
@@ -411,7 +414,7 @@ function segments(rs) {
 function renderCharts(runs) {
   const ok = runs.filter(valid);
   const slow = slowDeps(runs), hidden = (d) => !(SHOWN[d] ?? !slow.has(d));
-  const deps = [...new Set(ok.map((r) => r.deployment))].sort((a, b) => Object.keys(DEPS).indexOf(a) - Object.keys(DEPS).indexOf(b));
+  const deps = [...new Set(ok.map((r) => r.deployment))].sort(depOrder);
   const changes = vllmChanges(runs);
   $("legend").innerHTML = deps.map((d) => `<button type="button" data-dep="${esc(d)}" aria-pressed="${!hidden(d)}" title="Show or hide on the charts"><i style="--c: var(${dep(d).color})"></i>${esc(dep(d).label)}</button>`).join("") +
     (changes.length ? `<span><i class="vl"></i>new vLLM build</span>` : "");
@@ -485,8 +488,8 @@ function renderCompare(runs) {
     return;
   }
   const [commit, g] = groups[0];
-  $("cmp-sub").innerHTML = `Latest valid run of each deployment on vLLM ${commitLink("vllm", commit)}. Runs come from different nights; the ratio is against LMCache, hybrid SWA, and only on the same model.`;
-  const deps = Object.keys(DEPS).filter((d) => g[d]).concat(Object.keys(g).filter((d) => !DEPS[d]));
+  $("cmp-sub").innerHTML = `Latest valid run of each deployment on vLLM ${commitLink("vllm", commit)}. Runs come from different nights; the ratio is against ${esc(dep("vllm_lmcache").label)}, and only on the same model.`;
+  const deps = Object.keys(g).sort(depOrder);
   const base = g.vllm_lmcache;
   const cols = [...METRICS, { k: "ideal_pct", label: "Ideal hit", unit: "%", higher: null, noratio: true }, { k: "external_token_share", label: "Cache-layer tokens", unit: "", higher: true, pct: true }];
   // Best only among the runs on the base's model.
@@ -573,6 +576,8 @@ function render() {
   const runs = RUNS.filter((r) => r.host === HOST).sort((a, b) => a.date.localeCompare(b.date));
   const last = runs[runs.length - 1];
   $("updated").textContent = last ? `${runs.length} runs on ${HOST} · latest ${fmtDate(parseStamp(last.date))}` : "No runs yet";
+  LABELS = Object.fromEntries(runs.map((r) => [r.deployment, r.display.label]));
+  renderModelsNow(runs);
   renderCards(runs);
   renderCharts(runs);
   renderCompare(runs);
