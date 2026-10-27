@@ -58,8 +58,14 @@ h2 { font-size: 13px; font-weight: 600; margin: 0 0 4px; text-transform: upperca
 .meta { color: var(--muted); font-size: 13px; }
 a { color: var(--accent); }
 
+/* One row; overflow scrolls sideways. The bar shows only on hover, and the
+   bottom padding keeps it off the cards' bottom border. */
 .cards { display: flex; gap: 12px; overflow-x: auto; overscroll-behavior-x: contain;
-  scroll-snap-type: x proximity; padding-bottom: 6px; }
+  scroll-snap-type: x proximity; padding: 1px 1px 12px; scrollbar-width: none; }
+.cards:hover { scrollbar-width: thin; }
+.cards::-webkit-scrollbar { height: 0; }
+.cards:hover::-webkit-scrollbar { height: 6px; }
+.cards::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 3px; }
 .cards > .card { flex: 0 0 min(320px, 85vw); scroll-snap-align: start; }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px;
   display: grid; gap: 8px; align-content: start; min-width: 0; border-top: 3px solid var(--dep); }
@@ -186,6 +192,9 @@ const METRICS = [
   { k: "output_ktok_s", label: "Output throughput", unit: "k tok/s", higher: true },
   // The dashed line is the ideal: what an unbounded prefix cache would serve the same prompts.
   { k: "hit_pct", label: "Cache hit", unit: "%", higher: true, ideal: "ideal_pct", noratio: true, note: "prompt tokens not computed, dashed: ideal" },
+  // Lower wears the disks less. Runs before 2026-10-27 have none: their disk
+  // byte counts doubled on an md array.
+  { k: "disk_write_gb_s", label: "L2 disk write", unit: "GB/s", higher: false, note: "cache tiers' disk writes over the whole AIPerf run, warmup included" },
 ];
 
 // Throughput in k tok/s. Runs before CI recorded input_tok_s derive it from the
@@ -518,6 +527,7 @@ function detail(r) {
     ["MTP mean accept length", num(s.mtp_mean_accept_len)],
     ["L2 disk used", s.l2_disk_used_gb != null ? num(s.l2_disk_used_gb, 4) + " GB" : "–"],
     ["L2 read", s.l2_read_gb != null ? num(s.l2_read_gb, 4) + " GB" : "–"],
+    ["Disk read / written", s.disk_read_per_write != null ? `${num(s.disk_read_per_write * 100)} % (${num(s.disk_read_gb, 4)} / ${num(s.disk_write_gb, 4)} GB)` : "–"],
     ["vLLM image", r.images?.vllm_source ? `${r.images.vllm_source} build` : "–"],
     ...METRICS.filter((m) => vh[m.k]).map((m) => {
       const h = pageHistory(r, m);
