@@ -315,7 +315,12 @@ function slowDeps(runs) {
 
 function renderCards(runs) {
   const latest = latestRuns(runs);
-  const order = Object.keys(DEPS).filter((d) => latest[d]).concat(Object.keys(latest).filter((d) => !DEPS[d]));
+  // LMCache's cards first, the rest by latest TTFT p50, fastest first; an
+  // invalid latest run has none and goes last.
+  const LMCACHE = ["vllm_lmcache", "vllm_lmcache_ssm"];
+  const ttft = (d) => (valid(latest[d]) ? latest[d].summary.ttft_p50 : Infinity);
+  const order = LMCACHE.filter((d) => latest[d]).concat(
+    Object.keys(latest).filter((d) => !LMCACHE.includes(d)).sort((a, b) => ttft(a) - ttft(b)));
   if (!order.length) { $("cards").innerHTML = `<div class="empty">No runs on this host yet. The first nightly adds a card here.</div>`; return; }
   const slowSet = slowDeps(runs), folded = (d) => slowSet.has(d);
   const card = (d) => {
