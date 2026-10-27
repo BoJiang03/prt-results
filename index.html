@@ -187,8 +187,11 @@ const METRICS = [
   // The dashed line is the ideal: what an unbounded prefix cache would serve the same prompts.
   { k: "hit_pct", label: "Cache hit", unit: "%", higher: true, ideal: "ideal_pct", noratio: true, note: "prompt tokens not computed, dashed: ideal" },
   // Lower wears the disks less. Runs before 10-23 recorded no disk bytes; the
-  // rate of 10-23..10-27 runs is backfilled from Buildkite log timestamps.
-  { k: "disk_write_gb_s", label: "L2 disk write", unit: "GB/s", higher: false, note: "cache tiers' disk writes over the whole AIPerf run, warmup included" },
+  // whole-run rate of 10-23..10-27 runs is backfilled from Buildkite log
+  // timestamps. Warmup and steady need per-tick I/O samples, from 10-28 on.
+  { k: "disk_write_gb_s_steady", label: "L2 write, steady", unit: "GB/s", higher: false, note: "cache tiers' disk writes in the scoring window, after warmup: the rate a deployment under this load keeps up" },
+  { k: "disk_write_gb_s_warmup", label: "L2 write, warmup", unit: "GB/s", higher: false, note: "from AIPerf's start to the scoring window" },
+  { k: "disk_write_gb_s", label: "L2 write, whole run", unit: "GB/s", higher: false, note: "over the whole AIPerf run, warmup included" },
 ];
 
 // Throughput in k tok/s. Runs before CI recorded input_tok_s derive it from the
@@ -228,7 +231,8 @@ const gpusOf = (r) => r.summary.gpus?.length;
 const modelLabel = (r) => r.display.model + (gpusOf(r) ? ` · ${gpusOf(r)} GPUs` : "") + ` · ${concurrencyOf(r)} sessions`;
 const parseStamp = (s) => new Date(Date.UTC(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8), +s.slice(9, 11), +s.slice(11, 13), +s.slice(13, 15)));
 const fmtDate = (d) => d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: "UTC" }) + " UTC";
-const num = (v, digits = 3) => (v == null || Number.isNaN(v) ? "–" : Number(v).toPrecision(digits).replace(/\.?0+$/, (m) => (m.includes(".") ? "" : m)));
+// Nonzero values too small for the digits read "<0.001", not as 9.5e-9.
+const num = (v, digits = 3) => (v == null || Number.isNaN(v) ? "–" : v !== 0 && Math.abs(v) < 1e-3 ? "<0.001" : Number(v).toPrecision(digits).replace(/\.?0+$/, (m) => (m.includes(".") ? "" : m)));
 const sha = (s) => (s ? s.slice(0, 9) : "–");
 const commitLink = (repo, s) => (s ? `<a href="https://github.com/${REPOS[repo]}/commit/${esc(s)}" target="_blank" rel="noopener"><code>${esc(sha(s))}</code></a>` : "–");
 
