@@ -58,7 +58,9 @@ h2 { font-size: 13px; font-weight: 600; margin: 0 0 4px; text-transform: upperca
 .meta { color: var(--muted); font-size: 13px; }
 a { color: var(--accent); }
 
-.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.cards { display: flex; gap: 12px; overflow-x: auto; overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity; padding-bottom: 6px; }
+.cards > .card { flex: 0 0 min(320px, 85vw); scroll-snap-align: start; }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px;
   display: grid; gap: 8px; align-content: start; min-width: 0; border-top: 3px solid var(--dep); }
 .card-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 8px; align-items: start; }
