@@ -15,7 +15,7 @@
 :root {
   --bg: #f4f6f9; --surface: #ffffff; --fg: #141821; --muted: #5a6474; --line: #dde2ea;
   --accent: #1f5fbf;
-  --s-lmcache: #1f5fbf; --s-native: #7b5ea7; --s-simple: #0f7f73; --s-simple-l2: #b03a5b; --s-mooncake: #b86e00; --s-ssm: #4d7a1f; --s-other: #5a6474;
+  --s-lmcache: #1f5fbf; --s-native: #7b5ea7; --s-simple: #0f7f73; --s-simple-l2: #b03a5b; --s-mooncake: #b86e00; --s-ssm: #4d7a1f; --s-swa-l2: #8a5a2b; --s-other: #5a6474;
   --ok: #1b7a45; --ok-bg: #e3f3ea; --bad: #b8322b; --bad-bg: #fbe6e4;
   --warn: #7a5c00; --warn-bg: #f6efd6; --idle: #5a6474; --idle-bg: #eceff4;
   --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -24,7 +24,7 @@
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #0e1116; --surface: #161a21; --fg: #e5e9ef; --muted: #98a2b2; --line: #2a313c;
   --accent: #74a7ff;
-  --s-lmcache: #74a7ff; --s-native: #b9a0e6; --s-simple: #4fc7b6; --s-simple-l2: #f08aa6; --s-mooncake: #e8a547; --s-ssm: #9ccc65; --s-other: #98a2b2;
+  --s-lmcache: #74a7ff; --s-native: #b9a0e6; --s-simple: #4fc7b6; --s-simple-l2: #f08aa6; --s-mooncake: #e8a547; --s-ssm: #9ccc65; --s-swa-l2: #d2a679; --s-other: #98a2b2;
   --ok: #5cc791; --ok-bg: #12301f; --bad: #f2776c; --bad-bg: #3a1714;
   --warn: #dcc160; --warn-bg: #332a0c; --idle: #98a2b2; --idle-bg: #222831;
   color-scheme: dark;
@@ -32,7 +32,7 @@
 :root[data-theme="dark"] {
   --bg: #0e1116; --surface: #161a21; --fg: #e5e9ef; --muted: #98a2b2; --line: #2a313c;
   --accent: #74a7ff;
-  --s-lmcache: #74a7ff; --s-native: #b9a0e6; --s-simple: #4fc7b6; --s-simple-l2: #f08aa6; --s-mooncake: #e8a547; --s-ssm: #9ccc65; --s-other: #98a2b2;
+  --s-lmcache: #74a7ff; --s-native: #b9a0e6; --s-simple: #4fc7b6; --s-simple-l2: #f08aa6; --s-mooncake: #e8a547; --s-ssm: #9ccc65; --s-swa-l2: #d2a679; --s-other: #98a2b2;
   --ok: #5cc791; --ok-bg: #12301f; --bad: #f2776c; --bad-bg: #3a1714;
   --warn: #dcc160; --warn-bg: #332a0c; --idle: #98a2b2; --idle-bg: #222831;
   color-scheme: dark;
@@ -170,6 +170,7 @@ td.best { font-weight: 600; }
 const COLORS = {
   vllm_lmcache: "--s-lmcache",
   vllm_lmcache_ssm: "--s-ssm",
+  vllm_lmcache_swa_l2: "--s-swa-l2",
   vllm_native: "--s-native",
   vllm_simple: "--s-simple",
   vllm_simple_l2: "--s-simple-l2",
@@ -220,6 +221,8 @@ let RUNS = [], HOST = null, LABELS = {};
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+// LMCache's deployments, one per model; the reference the others are held against.
+const LMCACHE = ["vllm_lmcache", "vllm_lmcache_ssm", "vllm_lmcache_swa_l2"];
 const dep = (d) => ({ label: LABELS[d] ?? d, color: COLORS[d] || "--s-other" });
 const depOrder = (a, b) => (COLORS[a] ? Object.keys(COLORS).indexOf(a) : 99) - (COLORS[b] ? Object.keys(COLORS).indexOf(b) : 99);
 const valid = (r) => !(r.summary.invalid || []).length;
@@ -311,7 +314,7 @@ function latestRuns(runs) {
 // after a model change their latest runs are still on the old one.
 function slowDeps(runs) {
   const ok = runs.filter(valid), latest = latestRuns(ok), ref = {};
-  for (const r of ok) if (r.deployment === "vllm_lmcache") ref[setupOf(r)] = r;
+  for (const r of ok) if (LMCACHE.includes(r.deployment)) ref[setupOf(r)] = r;
   return new Set(Object.keys(latest).filter((d) => {
     const base = ref[setupOf(latest[d])];
     return base && latest[d].summary.ttft_p50 > FOLD_TTFT * base.summary.ttft_p50;
@@ -333,7 +336,6 @@ function renderCards(runs) {
   const latest = latestRuns(runs);
   // LMCache's cards first, the rest by latest TTFT p50, fastest first; an
   // invalid latest run has none and goes last.
-  const LMCACHE = ["vllm_lmcache", "vllm_lmcache_ssm"];
   const ttft = (d) => (valid(latest[d]) ? latest[d].summary.ttft_p50 : Infinity);
   const order = LMCACHE.filter((d) => latest[d]).concat(
     Object.keys(latest).filter((d) => !LMCACHE.includes(d)).sort((a, b) => ttft(a) - ttft(b)));
@@ -499,9 +501,10 @@ function renderCompare(runs) {
     return;
   }
   const [commit, g] = groups[0];
-  $("cmp-sub").innerHTML = `Latest valid run of each deployment on vLLM ${commitLink("vllm", commit)}. Runs come from different nights; the ratio is against ${esc(dep("vllm_lmcache").label)}, and only on the same model.`;
+  const base = LMCACHE.map((d) => g[d]).find(Boolean);
+  const against = base ? `against ${esc(dep(base.deployment).label)}` : "against LMCache";
+  $("cmp-sub").innerHTML = `Latest valid run of each deployment on vLLM ${commitLink("vllm", commit)}. Runs come from different nights; the ratio is ${against}, and only on the same model.`;
   const deps = Object.keys(g).sort(depOrder);
-  const base = g.vllm_lmcache;
   const cols = [...METRICS, { k: "ideal_pct", label: "Ideal hit", unit: "%", higher: null, noratio: true }, { k: "external_token_share", label: "Cache-layer tokens", unit: "", higher: true, pct: true }];
   // Best only among the runs on the base's model.
   const same = (r) => !base || setupOf(r) === setupOf(base);
