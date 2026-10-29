@@ -87,7 +87,6 @@ a { color: var(--accent); }
 .delta.good { color: var(--ok); } .delta.worse { color: var(--bad); } .delta.flat { color: var(--muted); }
 .card-foot { color: var(--muted); font-size: 12px; display: flex; flex-wrap: wrap; gap: 4px 12px; }
 .card-foot code, td code { font: 12px var(--mono); }
-.reason { color: var(--bad); font-size: 13px; overflow-wrap: anywhere; }
 
 .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 14px; }
 .chart { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 12px 4px; min-width: 0; }
@@ -321,10 +320,10 @@ function slowDeps(runs) {
   }));
 }
 
-// One clause per setup the newest runs used, naming its deployments.
+// One clause per setup the cards show, naming its deployments.
 function renderModelsNow(runs) {
   const by = {};
-  Object.values(latestRuns(runs)).forEach((r) => {
+  Object.values(latestRuns(runs.filter(valid))).forEach((r) => {
     const k = modelLabel(r);
     (by[k] ||= []).push(r.display.label);
   });
@@ -333,20 +332,19 @@ function renderModelsNow(runs) {
 }
 
 function renderCards(runs) {
-  const latest = latestRuns(runs);
-  // LMCache's cards first, the rest by latest TTFT p50, fastest first; an
-  // invalid latest run has none and goes last.
-  const ttft = (d) => (valid(latest[d]) ? latest[d].summary.ttft_p50 : Infinity);
+  // Each card shows its deployment's latest valid run: an invalid one has no
+  // metrics and stays in the table below with its reason.
+  const latest = latestRuns(runs.filter(valid));
+  // LMCache's cards first, the rest by latest TTFT p50, fastest first.
+  const ttft = (d) => latest[d].summary.ttft_p50;
   const order = LMCACHE.filter((d) => latest[d]).concat(
     Object.keys(latest).filter((d) => !LMCACHE.includes(d)).sort((a, b) => ttft(a) - ttft(b)));
   if (!order.length) { $("cards").innerHTML = `<div class="empty">No runs on this host yet. The first nightly adds a card here.</div>`; return; }
   const slowSet = slowDeps(runs), folded = (d) => slowSet.has(d);
   const card = (d) => {
     const r = latest[d], s = r.summary, g = gate(r), D = r.display;
-    const body = valid(r)
-      ? `<dl class="kv">${METRICS.map((m) => `<div><dt>${m.label}</dt><dd>${num(s[m.k])} <span class="u">${m.unit}</span>${delta(r, m)}</dd></div>` +
-          (m.ideal ? `<div><dt>Ideal hit</dt><dd>${num(s[m.ideal])} <span class="u">${m.unit}</span></dd></div>` : "")).join("")}</dl>`
-      : `<div class="reason">${(s.invalid || []).map(esc).join("<br>")}</div>`;
+    const body = `<dl class="kv">${METRICS.map((m) => `<div><dt>${m.label}</dt><dd>${num(s[m.k])} <span class="u">${m.unit}</span>${delta(r, m)}</dd></div>` +
+          (m.ideal ? `<div><dt>Ideal hit</dt><dd>${num(s[m.ideal])} <span class="u">${m.unit}</span></dd></div>` : "")).join("")}</dl>`;
     return `<article class="card" style="--dep: var(${dep(d).color})">
       <div class="card-head"><div><div class="card-name">${esc(D.label)}</div><div class="card-desc">${esc(D.desc)}</div><div class="card-desc">${esc(modelLabel(r))} · ${D.gated ? "gated" : "tracked"}</div></div>
       <span class="pill ${g.cls}">${esc(g.text)}</span></div>
