@@ -370,7 +370,8 @@ function renderCards(runs) {
 function vllmChanges(runs) {
   const out = [];
   let prev = null;
-  for (const r of runs) {
+  // Valid runs only: a vLLM that never started has no points to separate.
+  for (const r of runs.filter(valid)) {
     const c = r.summary.vllm_commit;
     if (!c) continue;
     if (prev && c !== prev) out.push({ x: parseStamp(r.date), c });
